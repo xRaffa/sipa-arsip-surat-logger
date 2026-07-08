@@ -1,16 +1,15 @@
-# React + Vite
+# Sistem Informasi Pengelolaan Arsip Surat
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+---
 
-Currently, two official plugins are available:
+## Feature sets:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+- [ ]  Supabase integration
+- [ ]  User’s own Google Drive integration for “Upload File”
+- [ ]  Log in methods: (either one, not both.)
+    - [ ]  Secure log in with email and password (hashed password)
+    - [ ]  Google Single Sign On (SSO) without needing email and password
+- [ ]  Modern White minimalist UI/UX
+- [ ]  Easy to use
+- [ ]  Can export entire database entry to a nice .csv or .xlsx
+- [ ]  Redundant (reminder to export/download entire list as .csv and/or .xlsx every week, user gets to choose to download in either one of these file formats
