@@ -345,7 +345,11 @@ export default function App() {
     const monthVal = isNaN(dateObj.getTime()) ? new Date().getMonth() + 1 : dateObj.getMonth() + 1;
     const yearVal = isNaN(dateObj.getTime()) ? new Date().getFullYear() : dateObj.getFullYear();
     const bulanRomawi = toRoman(monthVal);
-    return `${paddedNomor}/${genJenisSurat}-${genPenunjukanSurat}/${bulanRomawi}/${genInstansiPenerbit}/${yearVal}`;
+    if (modalType === 'masuk') {
+      return `${paddedNomor}/${genJenisSurat}/${bulanRomawi}/${yearVal}`;
+    } else {
+      return `${paddedNomor}/${genJenisSurat}-${genPenunjukanSurat}/${bulanRomawi}/${genInstansiPenerbit}/${yearVal}`;
+    }
   };
 
   // Handle Adding Entry
@@ -1289,6 +1293,16 @@ export default function App() {
                 <div className="live-preview-box">
                   <span className="live-preview-label">PREVIEW NOMOR SURAT GENERATED</span>
                   <span className="live-preview-value">{computedLetterNumber()}</span>
+                  
+                  {modalType === 'masuk' && (
+                    <>
+                      <hr style={{ borderColor: '#334155', margin: '12px 0 8px 0' }} />
+                      <span className="live-preview-label">NOMOR & TANGGAL DARI INSTANSI PENGIRIM</span>
+                      <span className="live-preview-value" style={{ color: '#fbbf24' }}>
+                        {nomorTanggal || '(Belum diisi)'}
+                      </span>
+                    </>
+                  )}
                 </div>
 
                 <div className="form-row">
@@ -1321,22 +1335,24 @@ export default function App() {
                 </div>
 
                 <div className="form-row">
-                  {/* Penunjukan Surat */}
-                  <div className="form-group">
-                    <label>Penunjukan Surat</label>
-                    <select
-                      className="input-control"
-                      value={genPenunjukanSurat}
-                      onChange={e => setGenPenunjukanSurat(e.target.value)}
-                    >
-                      {PENUNJUKAN_SURAT_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
+                  {/* Penunjukan Surat - Outgoing Only */}
+                  {modalType === 'keluar' && (
+                    <div className="form-group">
+                      <label>Penunjukan Surat</label>
+                      <select
+                        className="input-control"
+                        value={genPenunjukanSurat}
+                        onChange={e => setGenPenunjukanSurat(e.target.value)}
+                      >
+                        {PENUNJUKAN_SURAT_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                  {/* Bulan Romawi & Tahun Penerbitan replaced with a Date Selector */}
-                  <div className="form-group">
+                  {/* Tanggal Penerbitan */}
+                  <div className="form-group" style={{ gridColumn: modalType === 'masuk' ? 'span 2' : 'span 1' }}>
                     <label>Tanggal Penerbitan</label>
                     <input
                       type="date"
@@ -1348,21 +1364,23 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="form-row">
-                  {/* Instansi Penerbit */}
-                  <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                    <label>Instansi Penerbit</label>
-                    <select
-                      className="input-control"
-                      value={genInstansiPenerbit}
-                      onChange={e => setGenInstansiPenerbit(e.target.value)}
-                    >
-                      {INSTANSI_PENERBIT_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                {/* Instansi Penerbit - Outgoing Only */}
+                {modalType === 'keluar' && (
+                  <div className="form-row">
+                    <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                      <label>Instansi Penerbit</label>
+                      <select
+                        className="input-control"
+                        value={genInstansiPenerbit}
+                        onChange={e => setGenInstansiPenerbit(e.target.value)}
+                      >
+                        {INSTANSI_PENERBIT_OPTIONS.map(opt => (
+                          <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <hr style={{ margin: '16px 0', borderColor: 'var(--border)' }} />
 
