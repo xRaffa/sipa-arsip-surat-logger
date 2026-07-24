@@ -1,6 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { supabase } from './supabaseClient';
-import { uploadFileToDrive, generateRandom16CharFilename } from './googleDriveHelper';
 import * as XLSX from 'xlsx';
 import {
   Folder,
@@ -8,18 +6,18 @@ import {
   Plus,
   Search,
   Download,
-  LogOut,
   AlertTriangle,
-  CheckCircle,
   Settings,
   Layers,
   Database,
-  Cloud,
   ChevronRight,
   Loader2,
   Calendar,
   User,
-  Info
+  Info,
+  HardDrive,
+  FolderOpen,
+  ExternalLink,
 } from 'lucide-react';
 
 // Dropdown Constants
@@ -70,28 +68,18 @@ const INSTANSI_PENERBIT_OPTIONS = [
 ];
 
 export default function App() {
-  // Auth States
-  const [session, setSession] = useState(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [authEmail, setAuthEmail] = useState('');
-  const [authPassword, setAuthPassword] = useState('');
-  const [isSignUp, setIsSignUp] = useState(false);
-  const [authError, setAuthError] = useState('');
-  const [authSuccessMsg, setAuthSuccessMsg] = useState('');
-
   // App Layout States
   const [activeTab, setActiveTab] = useState('dashboard');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appReady, setAppReady] = useState(false);
 
   // Data Lists
   const [suratMasukList, setSuratMasukList] = useState([]);
   const [suratKeluarList, setSuratKeluarList] = useState([]);
   const [loadingData, setLoadingData] = useState(false);
 
-  // Google Drive Credentials & Token
-  const [googleClientId, setGoogleClientId] = useState(import.meta.env.VITE_GOOGLE_CLIENT_ID || '');
-  const [driveToken, setDriveToken] = useState(null);
-  const [driveTokenExpires, setDriveTokenExpires] = useState(null);
+  // Local Paths (shown in settings)
+  const [localPaths, setLocalPaths] = useState({ dbPath: '...', filesDir: '...' });
 
   // Weekly Backup Reminders
   const [backupReminderFormat, setBackupReminderFormat] = useState('both');
@@ -103,8 +91,9 @@ export default function App() {
   const [submittingEntry, setSubmittingEntry] = useState(false);
 
   // File Upload State
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [uploadProgress, setUploadProgress] = useState(''); // 'idle', 'uploading', 'success', 'error'
+  const [selectedFilePath, setSelectedFilePath] = useState(null);
+  const [selectedFileName, setSelectedFileName] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   // Generated Letter fields
   const [genNomorSurat, setGenNomorSurat] = useState('001');
@@ -125,65 +114,33 @@ export default function App() {
   const [isDeleteMode, setIsDeleteMode] = useState(false);
   const [selectedDeleteIds, setSelectedDeleteIds] = useState(new Set());
 
-  // Initial Auth hook
+  // ─── Init ───────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setAuthLoading(false);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-
-    // Check Google Drive cache
-    const cachedToken = localStorage.getItem('drive_token');
-    const cachedExpires = localStorage.getItem('drive_token_expires');
-    if (cachedToken && cachedExpires && Date.now() < Number(cachedExpires)) {
-      setDriveToken(cachedToken);
-      setDriveTokenExpires(Number(cachedExpires));
-    }
-
-    // Check Backup Settings & Date
+    // Load backup settings from localStorage
     const cachedBackupDate = localStorage.getItem('last_backup_date');
-    if (cachedBackupDate) {
-      setLastBackupDate(Number(cachedBackupDate));
-    }
+    if (cachedBackupDate) setLastBackupDate(Number(cachedBackupDate));
     const cachedFormat = localStorage.getItem('backup_reminder_format');
-    if (cachedFormat) {
-      setBackupReminderFormat(cachedFormat);
-    }
+    if (cachedFormat) setBackupReminderFormat(cachedFormat);
 
-    return () => subscription.unsubscribe();
+    // Fetch data and local paths from Electron IPC
+    fetchLetters().then(() => setAppReady(true));
+
+    window.electronAPI.getLocalPaths().then(paths => {
+      setLocalPaths(paths);
+    }).catch(err => {
+      console.warn('Could not get local paths (running in browser?):', err.message);
+    });
   }, []);
 
-  // Fetch letters when session is active
-  useEffect(() => {
-    if (session) {
-      fetchLetters();
-    }
-  }, [session]);
+  // ─── Data Fetching ──────────────────────────────────────────────────────────
 
   const fetchLetters = async () => {
     setLoadingData(true);
     try {
-      // Fetch Surat Masuk
-      const { data: masukData, error: masukError } = await supabase
-        .from('surat_masuk')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (masukError) throw masukError;
-      setSuratMasukList(masukData || []);
-
-      // Fetch Surat Keluar
-      const { data: keluarData, error: keluarError } = await supabase
-        .from('surat_keluar')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (keluarError) throw keluarError;
-      setSuratKeluarList(keluarData || []);
+      const data = await window.electronAPI.getLetters();
+      setSuratMasukList(data.surat_masuk || []);
+      setSuratKeluarList(data.surat_keluar || []);
     } catch (err) {
       console.error('Error fetching data:', err.message);
     } finally {
@@ -191,7 +148,8 @@ export default function App() {
     }
   };
 
-  // Bulk Selection Helpers
+  // ─── Bulk Selection Helpers ─────────────────────────────────────────────────
+
   const toggleSelectRow = (id) => {
     const nextSet = new Set(selectedDeleteIds);
     if (nextSet.has(id)) {
@@ -205,7 +163,6 @@ export default function App() {
   const toggleSelectAll = (list) => {
     const allIds = list.map(item => item.id);
     const hasAllSelected = allIds.every(id => selectedDeleteIds.has(id));
-
     const nextSet = new Set(selectedDeleteIds);
     if (hasAllSelected) {
       allIds.forEach(id => nextSet.delete(id));
@@ -222,15 +179,9 @@ export default function App() {
     if (window.confirm(`Apakah Anda yakin ingin menghapus ${count} data surat yang terpilih?`)) {
       setLoadingData(true);
       try {
-        const { error } = await supabase
-          .from(table)
-          .delete()
-          .in('id', Array.from(selectedDeleteIds));
-
-        if (error) throw error;
-
+        await window.electronAPI.deleteLetters(table, Array.from(selectedDeleteIds));
         alert(`Berhasil menghapus ${count} data surat.`);
-        fetchLetters();
+        await fetchLetters();
         setIsDeleteMode(false);
         setSelectedDeleteIds(new Set());
       } catch (err) {
@@ -242,92 +193,8 @@ export default function App() {
     }
   };
 
-  // Auth Operations
-  const handleAuth = async (e) => {
-    e.preventDefault();
-    setAuthError('');
-    setAuthSuccessMsg('');
-    if (!authEmail || !authPassword) {
-      setAuthError('Email and Password are required.');
-      return;
-    }
+  // ─── Helper: Roman numerals ─────────────────────────────────────────────────
 
-    try {
-      if (isSignUp) {
-        if (authPassword.length < 6) {
-          setAuthError('Password must be at least 6 characters.');
-          return;
-        }
-        const { error } = await supabase.auth.signUp({
-          email: authEmail,
-          password: authPassword
-        });
-        if (error) throw error;
-        setAuthSuccessMsg('Sign up successful! Please check your email for confirmation, or login.');
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({
-          email: authEmail,
-          password: authPassword
-        });
-        if (error) throw error;
-      }
-    } catch (err) {
-      setAuthError(err.message);
-    }
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    setDriveToken(null);
-    setDriveTokenExpires(null);
-    localStorage.removeItem('drive_token');
-    localStorage.removeItem('drive_token_expires');
-  };
-
-  // Google Drive Connect
-  const connectGoogleDrive = () => {
-    if (!googleClientId) {
-      alert('Please configure VITE_GOOGLE_CLIENT_ID in your settings or .env file.');
-      return;
-    }
-
-    if (!window.google) {
-      alert('Google API library not loaded. Check your internet connection.');
-      return;
-    }
-
-    try {
-      const client = window.google.accounts.oauth2.initTokenClient({
-        client_id: googleClientId,
-        scope: 'https://www.googleapis.com/auth/drive.file',
-        callback: (response) => {
-          if (response.error) {
-            console.error('Google OAuth Error:', response.error);
-            alert(`Authentication failed: ${response.error_description || response.error}`);
-            return;
-          }
-          setDriveToken(response.access_token);
-          const expiresAt = Date.now() + (parseInt(response.expires_in) * 1000);
-          setDriveTokenExpires(expiresAt);
-          localStorage.setItem('drive_token', response.access_token);
-          localStorage.setItem('drive_token_expires', expiresAt.toString());
-        }
-      });
-      client.requestAccessToken();
-    } catch (err) {
-      console.error(err);
-      alert('Error initiating Google connection: ' + err.message);
-    }
-  };
-
-  const disconnectGoogleDrive = () => {
-    setDriveToken(null);
-    setDriveTokenExpires(null);
-    localStorage.removeItem('drive_token');
-    localStorage.removeItem('drive_token_expires');
-  };
-
-  // Helper for Roman numerals
   const toRoman = (num) => {
     const romanMap = {
       1: 'I', 2: 'II', 3: 'III', 4: 'IV', 5: 'V', 6: 'VI',
@@ -336,9 +203,8 @@ export default function App() {
     return romanMap[num] || '';
   };
 
-  // Generated Letter formatting
-  // Nomor Surat (XXX) / Jenis Surat (XX)-Penunjukan Surat (X) / Bulan Romawi (XX) / Instansi Penerbit (X.XXXX) / Tahun (XXXX)
-  // Final: XXX/XX-X/XX/X.XXXX/XXXX
+  // ─── Generated Letter Formatting ────────────────────────────────────────────
+
   const computedLetterNumber = () => {
     const paddedNomor = String(genNomorSurat).padStart(3, '0');
     const dateObj = genTanggal ? new Date(genTanggal) : new Date();
@@ -352,42 +218,57 @@ export default function App() {
     }
   };
 
-  // Handle Adding Entry
+  // ─── File Picker (via Electron dialog) ─────────────────────────────────────
+
+  const handlePickFile = async () => {
+    try {
+      const filePath = await window.electronAPI.openFileDialog();
+      if (filePath) {
+        setSelectedFilePath(filePath);
+        // Extract the original filename from the path
+        const parts = filePath.replace(/\\/g, '/').split('/');
+        setSelectedFileName(parts[parts.length - 1]);
+      }
+    } catch (err) {
+      console.error('File picker error:', err);
+    }
+  };
+
+  const clearSelectedFile = () => {
+    setSelectedFilePath(null);
+    setSelectedFileName(null);
+    setUploadProgress('');
+  };
+
+  // ─── Add Entry Submit ───────────────────────────────────────────────────────
+
   const handleAddEntrySubmit = async (e) => {
     e.preventDefault();
     setSubmittingEntry(true);
     setUploadProgress('');
 
     let uploadedFileName = null;
-    let driveFileId = null;
+    let localFilePath = null;
 
     try {
-      // 1. Check file upload first (if file is selected)
-      if (selectedFile) {
-        if (!driveToken || Date.now() >= driveTokenExpires) {
-          throw new Error('Google Drive is not connected or connection expired. Please reconnect in settings.');
-        }
-
-        setUploadProgress('Uploading...');
-        // Generate random 16 character name preserving extension
-        const randomName = generateRandom16CharFilename(selectedFile.name);
-
-        const uploadResult = await uploadFileToDrive(driveToken, selectedFile, randomName);
-        uploadedFileName = uploadResult.name;
-        driveFileId = uploadResult.id;
-        setUploadProgress('Success!');
+      // 1. Copy file locally if one was selected
+      if (selectedFilePath && selectedFileName) {
+        setUploadProgress('Menyalin berkas...');
+        const result = await window.electronAPI.uploadFile(selectedFilePath, selectedFileName);
+        uploadedFileName = result.fileName;
+        localFilePath = result.filePath;
+        setUploadProgress('Berhasil!');
       }
 
-      // 2. Submit to Supabase
+      // 2. Insert into local db
       const generatedNo = computedLetterNumber();
 
       if (modalType === 'masuk') {
-        // Automatically calculate next nomor berturut
         const nextNomorBerturut = (suratMasukList.length > 0)
           ? Math.max(...suratMasukList.map(item => item.nomor_berturut || 0)) + 1
           : 1;
 
-        const { error } = await supabase.from('surat_masuk').insert([{
+        await window.electronAPI.addLetter('surat_masuk', {
           nomor_berturut: nextNomorBerturut,
           pengirim: pengirim,
           nomor_tanggal: nomorTanggal,
@@ -396,41 +277,35 @@ export default function App() {
           keterangan: keterangan,
           nomor_surat_generated: generatedNo,
           uploaded_files: uploadedFileName,
-          google_drive_file_id: driveFileId,
-          user_id: session.user.id
-        }]);
-
-        if (error) throw error;
+          local_file_path: localFilePath,
+        });
       } else {
-        const { error } = await supabase.from('surat_keluar').insert([{
+        await window.electronAPI.addLetter('surat_keluar', {
           isi_ringkas: isiRingkas,
           alamat_tanggal: alamatTanggal,
           agenda_berikut: agendaBerikut,
           keterangan: keterangan,
           nomor_surat_generated: generatedNo,
           uploaded_files: uploadedFileName,
-          google_drive_file_id: driveFileId,
-          user_id: session.user.id
-        }]);
-
-        if (error) throw error;
+          local_file_path: localFilePath,
+        });
       }
 
-      // Refresh list, close modal, and reset form
       await fetchLetters();
       setShowAddModal(false);
       resetForm();
     } catch (err) {
       console.error(err);
       setUploadProgress('Error!');
-      alert('Error inserting entry: ' + err.message);
+      alert('Gagal menyimpan entri: ' + err.message);
     } finally {
       setSubmittingEntry(false);
     }
   };
 
   const resetForm = () => {
-    setSelectedFile(null);
+    setSelectedFilePath(null);
+    setSelectedFileName(null);
     setUploadProgress('');
     setPengirim('');
     setNomorTanggal('');
@@ -445,12 +320,23 @@ export default function App() {
     setGenInstansiPenerbit('FTK.UnHar');
   };
 
-  // Export Utilities
-  const handleExport = (format) => {
-    // Generate filename based on date
-    const dateStr = new Date().toISOString().split('T')[0];
+  // ─── Open a local file ──────────────────────────────────────────────────────
 
-    // Choose dataset based on active tab
+  const handleOpenFile = async (filePath) => {
+    try {
+      const result = await window.electronAPI.openFile(filePath);
+      if (result && result.error) {
+        alert('Berkas tidak ditemukan: ' + result.error);
+      }
+    } catch (err) {
+      alert('Gagal membuka berkas: ' + err.message);
+    }
+  };
+
+  // ─── Export Utilities ───────────────────────────────────────────────────────
+
+  const handleExport = (format) => {
+    const dateStr = new Date().toISOString().split('T')[0];
     const isMasuk = activeTab === 'surat_masuk' || (activeTab === 'dashboard' && suratMasukList.length > 0);
     const data = isMasuk ? suratMasukList : suratKeluarList;
     const name = isMasuk ? 'Surat_Masuk' : 'Surat_Keluar';
@@ -460,7 +346,6 @@ export default function App() {
       return;
     }
 
-    // Format data for export
     const formattedData = data.map((item, index) => {
       if (isMasuk) {
         return {
@@ -472,9 +357,9 @@ export default function App() {
           'Isi Ringkas': item.isi_ringkas,
           'Hubungan Agenda Berikut': item.agenda_berikut,
           'Keterangan': item.keterangan,
-          'File Google Drive ID': item.google_drive_file_id || '',
           'Nama File': item.uploaded_files || '',
-          'Tanggal Dibuat': new Date(item.created_at).toLocaleString()
+          'Path File Lokal': item.local_file_path || '',
+          'Tanggal Dibuat': new Date(item.created_at).toLocaleString(),
         };
       } else {
         return {
@@ -484,9 +369,9 @@ export default function App() {
           'Alamat & Tanggal': item.alamat_tanggal,
           'Hubungan Agenda Berikut': item.agenda_berikut,
           'Keterangan': item.keterangan,
-          'File Google Drive ID': item.google_drive_file_id || '',
           'Nama File': item.uploaded_files || '',
-          'Tanggal Dibuat': new Date(item.created_at).toLocaleString()
+          'Path File Lokal': item.local_file_path || '',
+          'Tanggal Dibuat': new Date(item.created_at).toLocaleString(),
         };
       }
     });
@@ -501,7 +386,6 @@ export default function App() {
       XLSX.writeFile(workbook, `${name}_${dateStr}.xlsx`);
     }
 
-    // Update last backup date
     const now = Date.now();
     setLastBackupDate(now);
     localStorage.setItem('last_backup_date', now.toString());
@@ -510,17 +394,12 @@ export default function App() {
   const convertToCSV = (objArray) => {
     const array = typeof objArray !== 'object' ? JSON.parse(objArray) : objArray;
     let str = '';
-
-    // Headers
     const headers = Object.keys(array[0]);
     str += headers.join(',') + '\r\n';
-
-    // Rows
     for (let i = 0; i < array.length; i++) {
       let line = '';
       for (const index in array[i]) {
         if (line !== '') line += ',';
-        // Handle values containing commas
         const val = array[i][index] !== null ? String(array[i][index]) : '';
         line += `"${val.replace(/"/g, '""')}"`;
       }
@@ -541,7 +420,8 @@ export default function App() {
     document.body.removeChild(link);
   };
 
-  // Helper: check backup warning state
+  // ─── Backup warning helpers ─────────────────────────────────────────────────
+
   const isBackupWarningActive = () => {
     if (!lastBackupDate) return true;
     const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
@@ -553,13 +433,8 @@ export default function App() {
     localStorage.setItem('backup_reminder_format', format);
   };
 
-  const saveSettings = (e) => {
-    e.preventDefault();
-    localStorage.setItem('google_client_id_config', googleClientId);
-    alert('Settings saved successfully!');
-  };
+  // ─── Filter lists ───────────────────────────────────────────────────────────
 
-  // Filter lists based on search
   const filteredSuratMasuk = suratMasukList.filter(item =>
     (item.nomor_surat_generated && item.nomor_surat_generated.toLowerCase().includes(searchQuery.toLowerCase())) ||
     (item.pengirim && item.pengirim.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -574,88 +449,20 @@ export default function App() {
     (item.keterangan && item.keterangan.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // Render Auth screen if not logged in
-  if (authLoading) {
+  // ─── Loading Screen ─────────────────────────────────────────────────────────
+
+  if (!appReady) {
     return (
       <div className="auth-wrapper">
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <Loader2 className="animate-spin" size={48} color="#4F46E5" />
-          <p style={{ color: '#64748B', fontWeight: 500 }}>Memuat aplikasi...</p>
+          <p style={{ color: '#64748B', fontWeight: 500 }}>Memuat data lokal...</p>
         </div>
       </div>
     );
   }
 
-  if (!session) {
-    return (
-      <div className="auth-wrapper">
-        <div className="auth-card">
-          <div className="auth-logo">
-            <Layers color="#4F46E5" size={28} />
-            <span>SIPA FTK UnHar</span>
-          </div>
-          <p className="auth-subtitle">Sistem Informasi Pengelolaan Arsip Surat FTK Universitas Harapan Medan</p>
-
-          <form onSubmit={handleAuth} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {authError && (
-              <div style={{ padding: '12px', background: 'var(--error-light)', border: '1px solid var(--error)', color: 'var(--error)', borderRadius: 'var(--border-radius-sm)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <AlertTriangle size={16} />
-                <span>{authError}</span>
-              </div>
-            )}
-
-            {authSuccessMsg && (
-              <div style={{ padding: '12px', background: 'var(--success-light)', border: '1px solid var(--success)', color: 'var(--success)', borderRadius: 'var(--border-radius-sm)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <CheckCircle size={16} />
-                <span>{authSuccessMsg}</span>
-              </div>
-            )}
-
-            <div className="form-group">
-              <label>Alamat Email</label>
-              <input
-                type="email"
-                className="input-control"
-                placeholder="nama@unhar.ac.id"
-                value={authEmail}
-                onChange={e => setAuthEmail(e.target.value)}
-                required
-              />
-            </div>
-
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="password"
-                className="input-control"
-                placeholder="••••••••"
-                value={authPassword}
-                onChange={e => setAuthPassword(e.target.value)}
-                required
-              />
-            </div>
-
-            <button type="submit" className="btn btn-primary" style={{ width: '100%', marginTop: '8px', padding: '12px' }}>
-              {isSignUp ? 'Daftar Akun Baru' : 'Masuk ke Sistem'}
-            </button>
-
-            <button
-              type="button"
-              className="btn-text"
-              style={{ fontSize: '13px', textAlign: 'center', marginTop: '4px' }}
-              onClick={() => {
-                setIsSignUp(!isSignUp);
-                setAuthError('');
-                setAuthSuccessMsg('');
-              }}
-            >
-              {isSignUp ? 'Sudah punya akun? Masuk' : 'Belum punya akun? Daftar Baru'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
+  // ─── Main App ───────────────────────────────────────────────────────────────
 
   return (
     <div className="app-container">
@@ -706,21 +513,17 @@ export default function App() {
               <User size={18} color="var(--primary)" />
             </div>
             <div className="user-badge">
-              <span className="user-email">{session.user.email}</span>
-              <span className="user-role">Administrator FTK</span>
+              <span className="user-email">Administrator Lokal</span>
+              <span className="user-role">FTK UnHar — Offline</span>
             </div>
           </div>
-          <button onClick={handleLogout} className="btn btn-secondary btn-sm" style={{ width: '100%' }}>
-            <LogOut size={16} />
-            <span>Keluar</span>
-          </button>
         </footer>
       </aside>
 
       {/* Main Content Area */}
       <main className="main-content">
 
-        {/* Weekly backup warning toast/banner */}
+        {/* Weekly backup warning */}
         {isBackupWarningActive() && activeTab !== 'settings' && (
           <div className="alert-banner warning">
             <div className="alert-content">
@@ -749,7 +552,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Dashboard Tab */}
+        {/* ── Dashboard Tab ─────────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
             <div className="header-bar">
@@ -794,20 +597,15 @@ export default function App() {
 
               <div className="stat-card">
                 <div className="stat-header">
-                  <span>GOOGLE DRIVE</span>
-                  <div className="stat-icon-wrapper" style={{
-                    color: driveToken ? 'var(--success)' : 'var(--error)',
-                    background: driveToken ? 'var(--success-light)' : 'var(--error-light)'
-                  }}>
-                    <Cloud size={18} />
+                  <span>PENYIMPANAN LOKAL</span>
+                  <div className="stat-icon-wrapper" style={{ color: 'var(--success)', background: 'var(--success-light)' }}>
+                    <HardDrive size={18} />
                   </div>
                 </div>
-                <span className="stat-value" style={{ fontSize: '20px', fontWeight: 700, color: driveToken ? 'var(--success)' : 'var(--error)' }}>
-                  {driveToken ? 'Terkoneksi' : 'Terputus'}
+                <span className="stat-value" style={{ fontSize: '20px', fontWeight: 700, color: 'var(--success)' }}>
+                  Aktif
                 </span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                  {driveToken ? 'Drive API siap untuk upload file' : 'Hubungkan Drive di tab pengaturan'}
-                </span>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Semua data tersimpan di perangkat ini</span>
               </div>
             </div>
 
@@ -874,7 +672,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Surat Masuk Tab */}
+        {/* ── Surat Masuk Tab ────────────────────────────────────── */}
         {activeTab === 'surat_masuk' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div className="header-bar">
@@ -989,23 +787,22 @@ export default function App() {
                         <td>{item.agenda_berikut || '-'}</td>
                         <td>{item.keterangan || '-'}</td>
                         <td>
-                          {item.google_drive_file_id ? (
-                            <a
-                              href={`https://drive.google.com/file/d/${item.google_drive_file_id}/view?usp=drivesdk`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                          {item.local_file_path ? (
+                            <button
                               className="file-link"
+                              onClick={() => handleOpenFile(item.local_file_path)}
+                              title={item.uploaded_files}
                             >
-                              <Cloud size={14} />
+                              <ExternalLink size={14} />
                               <span style={{ fontSize: '11px' }}>{item.uploaded_files}</span>
-                            </a>
+                            </button>
                           ) : '-'}
                         </td>
                       </tr>
                     ))}
                     {filteredSuratMasuk.length === 0 && (
                       <tr>
-                        <td colSpan="9" className="empty-state">
+                        <td colSpan="10" className="empty-state">
                           <Search size={32} />
                           <span>Data surat masuk tidak ditemukan atau kosong.</span>
                         </td>
@@ -1018,7 +815,7 @@ export default function App() {
           </div>
         )}
 
-        {/* Surat Keluar Tab */}
+        {/* ── Surat Keluar Tab ───────────────────────────────────── */}
         {activeTab === 'surat_keluar' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
             <div className="header-bar">
@@ -1129,23 +926,22 @@ export default function App() {
                         <td>{item.agenda_berikut || '-'}</td>
                         <td>{item.keterangan || '-'}</td>
                         <td>
-                          {item.google_drive_file_id ? (
-                            <a
-                              href={`https://drive.google.com/file/d/${item.google_drive_file_id}/view?usp=drivesdk`}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                          {item.local_file_path ? (
+                            <button
                               className="file-link"
+                              onClick={() => handleOpenFile(item.local_file_path)}
+                              title={item.uploaded_files}
                             >
-                              <Cloud size={14} />
+                              <ExternalLink size={14} />
                               <span style={{ fontSize: '11px' }}>{item.uploaded_files}</span>
-                            </a>
+                            </button>
                           ) : '-'}
                         </td>
                       </tr>
                     ))}
                     {filteredSuratKeluar.length === 0 && (
                       <tr>
-                        <td colSpan="7" className="empty-state">
+                        <td colSpan="8" className="empty-state">
                           <Search size={32} />
                           <span>Data surat keluar tidak ditemukan atau kosong.</span>
                         </td>
@@ -1158,64 +954,64 @@ export default function App() {
           </div>
         )}
 
-        {/* Settings and Config tab */}
+        {/* ── Settings Tab ───────────────────────────────────────── */}
         {activeTab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
             <div>
-              <h2>Google Drive & Pengaturan Setup</h2>
-              <p style={{ color: 'var(--text-muted)' }}>Konfigurasi dan integrasi Google Drive pihak ketiga untuk user</p>
+              <h2>Pengaturan Aplikasi</h2>
+              <p style={{ color: 'var(--text-muted)' }}>Informasi penyimpanan lokal dan konfigurasi ekspor data</p>
             </div>
 
+            {/* Local Storage Paths */}
             <div className="settings-card">
               <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Cloud size={20} color="var(--accent)" />
-                <span>Koneksi Google Drive</span>
+                <HardDrive size={20} color="var(--primary)" />
+                <span>Lokasi Penyimpanan Lokal</span>
               </h3>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '16px' }}>
+                Semua data tersimpan sepenuhnya di perangkat ini. Salin atau cadangkan file-file di bawah ini secara manual untuk menjaga keamanan data Anda.
+              </p>
 
-              <div className="connection-status">
-                <div className={`status-indicator ${driveToken ? 'connected' : 'disconnected'}`}></div>
-                <div>
-                  <strong>{driveToken ? 'Google Drive Terkoneksi' : 'Google Drive Terputus'}</strong>
-                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-muted)' }}>
-                    {driveToken
-                      ? `Token aktif. Kedaluwarsa pada: ${new Date(driveTokenExpires).toLocaleTimeString()}`
-                      : 'Koneksikan Google Drive Anda untuk mengaktifkan fitur upload berkas.'}
-                  </p>
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                {driveToken ? (
-                  <button onClick={disconnectGoogleDrive} className="btn btn-secondary">
-                    Putuskan Akses
-                  </button>
-                ) : (
-                  <button onClick={connectGoogleDrive} className="btn btn-accent">
-                    Hubungkan Google Drive
-                  </button>
-                )}
-              </div>
-
-              <form onSubmit={saveSettings} style={{ borderTop: '1px solid var(--border)', paddingTop: '24px' }}>
-                <div className="form-group">
-                  <label>Google OAuth Client ID (Konfigurasi Lokal/Dev)</label>
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Database size={14} />
+                  Lokasi Database (db.json)
+                </label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                   <input
                     type="text"
                     className="input-control"
-                    placeholder="Masukkan Google Client ID dari Google Cloud Console"
-                    value={googleClientId}
-                    onChange={e => setGoogleClientId(e.target.value)}
+                    value={localPaths.dbPath}
+                    readOnly
+                    style={{ fontFamily: 'monospace', fontSize: '12px', cursor: 'text' }}
                   />
-                  <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                    Diperlukan untuk memunculkan modal login Google Drive client-side. Pastikan domain asal terdaftar di Google Cloud Console.
-                  </span>
                 </div>
-                <button type="submit" className="btn btn-primary btn-sm" style={{ marginTop: '8px' }}>
-                  Simpan Client ID
-                </button>
-              </form>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  File JSON ini berisi seluruh arsip surat Anda. Cadangkan file ini secara rutin.
+                </span>
+              </div>
+
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <FolderOpen size={14} />
+                  Folder Berkas Surat (SIPA_FTK_Files)
+                </label>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <input
+                    type="text"
+                    className="input-control"
+                    value={localPaths.filesDir}
+                    readOnly
+                    style={{ fontFamily: 'monospace', fontSize: '12px', cursor: 'text' }}
+                  />
+                </div>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                  Semua berkas surat yang diunggah tersimpan di folder ini dengan nama acak 16-karakter.
+                </span>
+              </div>
             </div>
 
+            {/* Backup Settings */}
             <div className="settings-card">
               <h3 style={{ fontSize: '18px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <AlertTriangle size={20} color="var(--warning)" />
@@ -1275,7 +1071,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Add letter pop-up Modal */}
+      {/* ── Add Letter Modal ───────────────────────────────────── */}
       {showAddModal && (
         <div className="modal-overlay">
           <div className="modal-container">
@@ -1293,7 +1089,7 @@ export default function App() {
                 <div className="live-preview-box">
                   <span className="live-preview-label">PREVIEW NOMOR SURAT GENERATED</span>
                   <span className="live-preview-value">{computedLetterNumber()}</span>
-                  
+
                   {modalType === 'masuk' && (
                     <>
                       <hr style={{ borderColor: '#334155', margin: '12px 0 8px 0' }} />
@@ -1306,7 +1102,7 @@ export default function App() {
                 </div>
 
                 <div className="form-row">
-                  {/* Nomor Surat (001 - 999) */}
+                  {/* Nomor Surat */}
                   <div className="form-group">
                     <label>Nomor Surat (001 - 999)</label>
                     <input
@@ -1459,34 +1255,52 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Google Drive upload section */}
+                {/* Local File Upload section */}
                 <div style={{ background: '#f8fafc', padding: '16px', borderRadius: 'var(--border-radius-md)', border: '1px dashed var(--border)', marginTop: '8px' }}>
-                  <span style={{ fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
-                    <Cloud size={16} color={driveToken ? 'var(--success)' : 'var(--text-muted)'} />
-                    <span>Upload File Ke Google Drive Pribadi</span>
+                  <span style={{ fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '12px' }}>
+                    <HardDrive size={16} color="var(--primary)" />
+                    <span>Lampirkan Berkas Surat (Lokal)</span>
                   </span>
 
-                  {driveToken ? (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      <input
-                        type="file"
-                        onChange={e => setSelectedFile(e.target.files[0])}
-                        style={{ fontSize: '13px' }}
-                      />
-                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
-                        File akan diunggah ke folder: <strong>SIPA FTK UnHar Files</strong> dengan nama acak 16-karakter.
-                      </span>
-                      {uploadProgress && (
-                        <div style={{ fontSize: '12px', fontWeight: 600, color: uploadProgress.includes('Error') ? 'var(--error)' : 'var(--success)' }}>
-                          Status upload: {uploadProgress}
-                        </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-sm"
+                        onClick={handlePickFile}
+                      >
+                        <FolderOpen size={14} />
+                        <span>Pilih Berkas...</span>
+                      </button>
+                      {selectedFileName && (
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          style={{ color: 'var(--error)', borderColor: 'var(--error)' }}
+                          onClick={clearSelectedFile}
+                        >
+                          ✕ Hapus
+                        </button>
                       )}
                     </div>
-                  ) : (
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      Google Drive belum terkoneksi. Silakan hubungkan Google Drive di tab Pengaturan terlebih dahulu untuk mengunggah berkas surat.
-                    </div>
-                  )}
+
+                    {selectedFileName ? (
+                      <div style={{ fontSize: '12px', color: 'var(--success)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <FileText size={12} />
+                        <span>{selectedFileName}</span>
+                      </div>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>
+                        File akan disalin ke folder <strong>SIPA_FTK_Files</strong> dengan nama acak 16-karakter.
+                      </span>
+                    )}
+
+                    {uploadProgress && (
+                      <div style={{ fontSize: '12px', fontWeight: 600, color: uploadProgress.includes('Error') ? 'var(--error)' : 'var(--success)' }}>
+                        Status: {uploadProgress}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
               </div>

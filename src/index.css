@@ -736,17 +736,26 @@ tr.row-selected td {
   color: var(--text-muted);
 }
 
+
 .file-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   color: var(--accent);
   font-weight: 500;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+  font-size: inherit;
 }
 
 .file-link:hover {
   text-decoration: underline;
+  color: var(--accent-hover);
 }
+
 
 /* Animations */
 @keyframes fadeIn {
