@@ -27,5 +27,19 @@
     "electron-builder": "^26.15.3",
     "oxlint": "^1.71.0",
     "vite": "^8.1.1"
+  },
+  "build": {
+    "appId": "com.surat.masuk.keluar",
+    "productName": "Surat Masuk Keluar",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
   }
 }

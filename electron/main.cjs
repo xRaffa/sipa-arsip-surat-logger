@@ -152,7 +152,9 @@ function createWindow() {
     tryLoad();
   } else {
     // In production, load built assets
-    win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    // win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+    win.loadFile(path.join(__dirname, '../dist/index.html'));
+
   }
 }
 
