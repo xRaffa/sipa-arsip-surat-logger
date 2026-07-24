@@ -1,7 +1,7 @@
 {
-  "name": "surat_masuk_keluar_web",
+  "name": "sipa_ftk_unhar",
   "private": true,
-  "version": "0.0.0",
+  "version": "2.0.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
@@ -29,8 +29,8 @@
     "vite": "^8.1.1"
   },
   "build": {
-    "appId": "com.surat.masuk.keluar",
-    "productName": "Surat Masuk Keluar",
+    "appId": "com.unhar.sipa",
+    "productName": "SIPA FTK UnHar",
     "directories": {
       "output": "dist_electron"
     },
