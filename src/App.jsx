@@ -38,6 +38,11 @@ const JENIS_SURAT_OPTIONS = [
   { value: 'SU', label: 'SU - Surat Umum' }
 ];
 
+const JENIS_SURAT_MASUK_OPTIONS = [
+  { value: 'O', label: 'O - Surat Masuk' },
+  { value: 'MANUAL', label: 'Ketik Manual' }
+];
+
 const PENUNJUKAN_SURAT_OPTIONS = [
   { value: 'A', label: 'A - Yayasan Pendidikan Harapan' },
   { value: 'B', label: 'B - Kopertis wilayah I' },
@@ -95,11 +100,50 @@ export default function App() {
   const [selectedFileName, setSelectedFileName] = useState(null);
   const [uploadProgress, setUploadProgress] = useState('');
 
+  const getTodayDDMMYYYY = () => {
+    const d = new Date();
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  };
+
+  const parseDateParts = (dateStr) => {
+    if (!dateStr || typeof dateStr !== 'string') {
+      const d = new Date();
+      return { month: d.getMonth() + 1, year: d.getFullYear() };
+    }
+    const str = dateStr.trim();
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+      const parts = str.split('/');
+      const m = parseInt(parts[1], 10);
+      const y = parseInt(parts[2], 10);
+      if (!isNaN(m) && !isNaN(y) && m >= 1 && m <= 12) {
+        return { month: m, year: y };
+      }
+    }
+    if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(str)) {
+      const parts = str.split('-');
+      const y = parseInt(parts[0], 10);
+      const m = parseInt(parts[1], 10);
+      if (!isNaN(m) && !isNaN(y) && m >= 1 && m <= 12) {
+        return { month: m, year: y };
+      }
+    }
+    const d = new Date(str);
+    if (!isNaN(d.getTime())) {
+      return { month: d.getMonth() + 1, year: d.getFullYear() };
+    }
+    const now = new Date();
+    return { month: now.getMonth() + 1, year: now.getFullYear() };
+  };
+
   // Generated Letter fields
   const [genNomorSurat, setGenNomorSurat] = useState('001');
   const [genJenisSurat, setGenJenisSurat] = useState('O');
+  const [genCustomJenisSurat, setGenCustomJenisSurat] = useState('');
   const [genPenunjukanSurat, setGenPenunjukanSurat] = useState('A');
-  const [genTanggal, setGenTanggal] = useState(new Date().toISOString().split('T')[0]);
+  const [genTanggal, setGenTanggal] = useState(getTodayDDMMYYYY());
   const [genInstansiPenerbit, setGenInstansiPenerbit] = useState('FTK.UnHar');
 
   // Database Entry Fields
@@ -205,16 +249,33 @@ export default function App() {
 
   // ─── Generated Letter Formatting ────────────────────────────────────────────
 
+  const formattedNomor = () => {
+    if (!genNomorSurat) return '001';
+    if (/^\d+$/.test(genNomorSurat)) {
+      return String(genNomorSurat).padStart(3, '0');
+    }
+    return genNomorSurat;
+  };
+
+  const getEffectiveJenisSurat = () => {
+    if (modalType === 'masuk') {
+      if (genJenisSurat === 'MANUAL') {
+        return genCustomJenisSurat.trim() || 'O';
+      }
+      return genJenisSurat || 'O';
+    }
+    return genJenisSurat || 'O';
+  };
+
   const computedLetterNumber = () => {
-    const paddedNomor = String(genNomorSurat).padStart(3, '0');
-    const dateObj = genTanggal ? new Date(genTanggal) : new Date();
-    const monthVal = isNaN(dateObj.getTime()) ? new Date().getMonth() + 1 : dateObj.getMonth() + 1;
-    const yearVal = isNaN(dateObj.getTime()) ? new Date().getFullYear() : dateObj.getFullYear();
+    const nom = formattedNomor();
+    const jenisSuratVal = getEffectiveJenisSurat();
+    const { month: monthVal, year: yearVal } = parseDateParts(genTanggal);
     const bulanRomawi = toRoman(monthVal);
     if (modalType === 'masuk') {
-      return `${paddedNomor}/${genJenisSurat}/${bulanRomawi}/${yearVal}`;
+      return `${nom}/${jenisSuratVal}/${bulanRomawi}/${yearVal}`;
     } else {
-      return `${paddedNomor}/${genJenisSurat}-${genPenunjukanSurat}/${bulanRomawi}/${genInstansiPenerbit}/${yearVal}`;
+      return `${nom}/${jenisSuratVal}-${genPenunjukanSurat}/${bulanRomawi}/${genInstansiPenerbit}/${yearVal}`;
     }
   };
 
@@ -282,7 +343,7 @@ export default function App() {
       } else {
         await window.electronAPI.addLetter('surat_keluar', {
           isi_ringkas: isiRingkas,
-          alamat_tanggal: alamatTanggal,
+          alamat_tanggal: '',
           agenda_berikut: agendaBerikut,
           keterangan: keterangan,
           nomor_surat_generated: generatedNo,
@@ -315,10 +376,12 @@ export default function App() {
     setAlamatTanggal('');
     setGenNomorSurat('001');
     setGenJenisSurat('O');
+    setGenCustomJenisSurat('');
     setGenPenunjukanSurat('A');
     setGenTanggal(new Date().toISOString().split('T')[0]);
     setGenInstansiPenerbit('FTK.UnHar');
   };
+
 
   // ─── Open a local file ──────────────────────────────────────────────────────
 
@@ -331,6 +394,18 @@ export default function App() {
     } catch (err) {
       alert('Gagal membuka berkas: ' + err.message);
     }
+  };
+
+  // ─── Date Formatter (dd/MM/yyyy) ─────────────────────────────────────────────
+
+  const formatDateDDMMYYYY = (dateInput) => {
+    if (!dateInput) return '-';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return String(dateInput);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
   };
 
   // ─── Export Utilities ───────────────────────────────────────────────────────
@@ -359,19 +434,18 @@ export default function App() {
           'Keterangan': item.keterangan,
           'Nama File': item.uploaded_files || '',
           'Path File Lokal': item.local_file_path || '',
-          'Tanggal Dibuat': new Date(item.created_at).toLocaleString(),
+          'Tanggal Dibuat': formatDateDDMMYYYY(item.created_at),
         };
       } else {
         return {
           'No. Urut': index + 1,
           'Nomor Surat (Generated)': item.nomor_surat_generated,
           'Isi Ringkas': item.isi_ringkas,
-          'Alamat & Tanggal': item.alamat_tanggal,
           'Hubungan Agenda Berikut': item.agenda_berikut,
           'Keterangan': item.keterangan,
           'Nama File': item.uploaded_files || '',
           'Path File Lokal': item.local_file_path || '',
-          'Tanggal Dibuat': new Date(item.created_at).toLocaleString(),
+          'Tanggal Dibuat': formatDateDDMMYYYY(item.created_at),
         };
       }
     });
@@ -433,21 +507,37 @@ export default function App() {
     localStorage.setItem('backup_reminder_format', format);
   };
 
-  // ─── Filter lists ───────────────────────────────────────────────────────────
+  // ─── Comprehensive Search & Filter lists ────────────────────────────────────
 
-  const filteredSuratMasuk = suratMasukList.filter(item =>
-    (item.nomor_surat_generated && item.nomor_surat_generated.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.pengirim && item.pengirim.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.isi_ringkas && item.isi_ringkas.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.keterangan && item.keterangan.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  const matchesSearch = (item, query) => {
+    if (!query || !query.trim()) return true;
+    const q = query.toLowerCase().trim();
 
-  const filteredSuratKeluar = suratKeluarList.filter(item =>
-    (item.nomor_surat_generated && item.nomor_surat_generated.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.isi_ringkas && item.isi_ringkas.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.alamat_tanggal && item.alamat_tanggal.toLowerCase().includes(searchQuery.toLowerCase())) ||
-    (item.keterangan && item.keterangan.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+    const formattedDate = item.created_at ? formatDateDDMMYYYY(item.created_at).toLowerCase() : '';
+    const rawDate = item.created_at ? new Date(item.created_at).toISOString().toLowerCase() : '';
+
+    const fields = [
+      item.isi_ringkas,
+      item.keterangan,
+      item.agenda_berikut,
+      item.pengirim,
+      item.nomor_tanggal,
+      item.alamat_tanggal,
+      item.nomor_surat_generated,
+      item.uploaded_files,
+      formattedDate,
+      rawDate
+    ];
+
+    return fields.some(val => val && String(val).toLowerCase().includes(q));
+  };
+
+  const filteredSuratMasuk = suratMasukList.filter(item => matchesSearch(item, searchQuery));
+  const filteredSuratKeluar = suratKeluarList.filter(item => matchesSearch(item, searchQuery));
+
+  const dashboardSuratMasuk = suratMasukList.filter(item => matchesSearch(item, searchQuery));
+  const dashboardSuratKeluar = suratKeluarList.filter(item => matchesSearch(item, searchQuery));
+
 
   // ─── Loading Screen ─────────────────────────────────────────────────────────
 
@@ -611,8 +701,18 @@ export default function App() {
 
             {/* Quick overview of latest letters */}
             <div className="card-table-container">
-              <div className="table-toolbar">
+              <div className="table-toolbar" style={{ flexWrap: 'wrap', gap: '16px' }}>
                 <h3 style={{ fontSize: '16px' }}>Arsip Surat Terbaru</h3>
+                <div className="search-box" style={{ flex: 1, minWidth: '240px', maxWidth: '400px' }}>
+                  <Search size={18} />
+                  <input
+                    type="text"
+                    className="input-control"
+                    placeholder="Cari (isi ringkas, keterangan, agenda, tanggal)..."
+                    value={searchQuery}
+                    onChange={e => setSearchQuery(e.target.value)}
+                  />
+                </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                   <button onClick={() => setActiveTab('surat_masuk')} className="btn btn-secondary btn-sm">
                     <span>Lihat Semua Surat Masuk</span>
@@ -635,7 +735,7 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {suratMasukList.slice(0, 3).map(item => (
+                    {dashboardSuratMasuk.slice(0, 3).map(item => (
                       <tr key={item.id}>
                         <td><span style={{ color: '#10b981', fontWeight: 600 }}>Masuk</span></td>
                         <td><span className="letter-badge">{item.nomor_surat_generated}</span></td>
@@ -643,21 +743,21 @@ export default function App() {
                           <div><strong>{item.isi_ringkas || '-'}</strong></div>
                           <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Pengirim: {item.pengirim || '-'}</div>
                         </td>
-                        <td>{new Date(item.created_at).toLocaleDateString()}</td>
+                        <td>{formatDateDDMMYYYY(item.created_at)}</td>
                       </tr>
                     ))}
-                    {suratKeluarList.slice(0, 3).map(item => (
+                    {dashboardSuratKeluar.slice(0, 3).map(item => (
                       <tr key={item.id}>
                         <td><span style={{ color: 'var(--accent)', fontWeight: 600 }}>Keluar</span></td>
                         <td><span className="letter-badge" style={{ background: 'var(--accent-light)', color: 'var(--accent)' }}>{item.nomor_surat_generated}</span></td>
                         <td>
                           <div><strong>{item.isi_ringkas || '-'}</strong></div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Alamat: {item.alamat_tanggal || '-'}</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Keterangan: {item.keterangan || '-'}</div>
                         </td>
-                        <td>{new Date(item.created_at).toLocaleDateString()}</td>
+                        <td>{formatDateDDMMYYYY(item.created_at)}</td>
                       </tr>
                     ))}
-                    {suratMasukList.length === 0 && suratKeluarList.length === 0 && (
+                    {dashboardSuratMasuk.length === 0 && dashboardSuratKeluar.length === 0 && (
                       <tr>
                         <td colSpan="4" className="empty-state">
                           <Info size={32} />
@@ -725,7 +825,7 @@ export default function App() {
                   <input
                     type="text"
                     className="input-control"
-                    placeholder="Cari surat masuk..."
+                    placeholder="Cari (isi ringkas, keterangan, agenda, tanggal, dll)..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                   />
@@ -868,7 +968,7 @@ export default function App() {
                   <input
                     type="text"
                     className="input-control"
-                    placeholder="Cari surat keluar..."
+                    placeholder="Cari (isi ringkas, keterangan, agenda, tanggal, dll)..."
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                   />
@@ -1104,14 +1204,13 @@ export default function App() {
                 <div className="form-row">
                   {/* Nomor Surat */}
                   <div className="form-group">
-                    <label>Nomor Surat (001 - 999)</label>
+                    <label>Nomor Surat</label>
                     <input
-                      type="number"
-                      min="1"
-                      max="999"
+                      type="text"
                       className="input-control"
                       value={genNomorSurat}
                       onChange={e => setGenNomorSurat(e.target.value)}
+                      placeholder="cth: 001, 085.a, atau 084.a/0"
                       required
                     />
                   </div>
@@ -1123,12 +1222,26 @@ export default function App() {
                       value={genJenisSurat}
                       onChange={e => setGenJenisSurat(e.target.value)}
                     >
-                      {JENIS_SURAT_OPTIONS.map(opt => (
+                      {(modalType === 'masuk' ? JENIS_SURAT_MASUK_OPTIONS : JENIS_SURAT_OPTIONS).map(opt => (
                         <option key={opt.value} value={opt.value}>{opt.label}</option>
                       ))}
                     </select>
                   </div>
                 </div>
+
+                {modalType === 'masuk' && genJenisSurat === 'MANUAL' && (
+                  <div className="form-group" style={{ marginBottom: '16px' }}>
+                    <label>Ketik Jenis Surat Manual</label>
+                    <input
+                      type="text"
+                      className="input-control"
+                      placeholder="cth: SK, SURAT-BEBAS, DLL"
+                      value={genCustomJenisSurat}
+                      onChange={e => setGenCustomJenisSurat(e.target.value)}
+                      required
+                    />
+                  </div>
+                )}
 
                 <div className="form-row">
                   {/* Penunjukan Surat - Outgoing Only */}
@@ -1207,19 +1320,7 @@ export default function App() {
                       />
                     </div>
                   </>
-                ) : (
-                  /* Surat Keluar Specific fields */
-                  <div className="form-group">
-                    <label>Alamat dan Tanggal Pengiriman</label>
-                    <input
-                      type="text"
-                      className="input-control"
-                      value={alamatTanggal}
-                      onChange={e => setAlamatTanggal(e.target.value)}
-                      placeholder="cth: Jl. Merdeka No. 10 - 2 Juli 2026"
-                    />
-                  </div>
-                )}
+                ) : null}
 
                 <div className="form-group">
                   <label>Isi Ringkas</label>
