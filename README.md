@@ -1,15 +1,11 @@
-# Sistem Informasi Pengelolaan Arsip Surat
+# Sistem Informasi Pengelolaan Arsip Surat (SIPA)
 
 ---
 
 ## Feature sets:
+1. Fully Local Electron App and SQLite database, no internet connection required
+~~2. Remove online database and google drive integration~~
+2. Save database entry into local file, .csv/.xlsx
+3. Simple, lightweight, user-friendly
 
-- [ ]  Supabase integration
-- [ ]  User’s own Google Drive integration for “Upload File”
-- [ ]  Log in methods: (either one, not both.)
-    - [ ]  Secure log in with email and password (hashed password)
-    - [ ]  Google Single Sign On (SSO) without needing email and password
-- [ ]  Modern White minimalist UI/UX
-- [ ]  Easy to use
-- [ ]  Can export entire database entry to a nice .csv or .xlsx
-- [ ]  Redundant (reminder to export/download entire list as .csv and/or .xlsx every week, user gets to choose to download in either one of these file formats
+Release build is built using Electron, and React + Vite as the framework behind it. Electron is being used just as a web wrapper because I don't know how to write native apps and it's cheaper and faster to ship apps like this 🙂
